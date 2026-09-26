@@ -1,0 +1,81 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.devops</groupId>
+  <artifactId>doc-validator</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!--
+      Which markdown file the "package" phase validates + packages, and
+      where the resulting zip goes. Overridable on the command line, e.g.:
+        mvn package -Dvalidator.target=../docs/fixtures/leaked-secret.md
+      Jenkins always uses the default (docs/incoming.md, the file the demo
+      pushes overwrite); the verification script overrides it to exercise
+      all three fixtures directly.
+    -->
+    <validator.target>${project.basedir}/../docs/incoming.md</validator.target>
+    <validator.output>${project.basedir}/target/artifact.zip</validator.output>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.2</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- Used only to parse the YAML frontmatter block, nothing fancier. -->
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>2.2</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+      </plugin>
+
+      <!--
+        Runs DocValidator as part of "mvn package". This is the actual
+        quality gate: if the target markdown file fails validation, main()
+        exits non-zero, this goal fails, and the whole "mvn package" build
+        (and therefore the Jenkins "Validate" stage) fails — so later
+        pipeline stages never run.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.2.0</version>
+        <executions>
+          <execution>
+            <id>run-doc-validator</id>
+            <phase>package</phase>
+            <goals>
+              <goal>java</goal>
+            </goals>
+            <configuration>
+              <mainClass>com.devops.validator.DocValidator</mainClass>
+              <arguments>
+                <argument>${validator.target}</argument>
+                <argument>${validator.output}</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

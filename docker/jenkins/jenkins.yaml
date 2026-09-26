@@ -1,0 +1,38 @@
+jenkins:
+  systemMessage: "Automated LLMOps RAG Ingestion Pipeline — headless demo Jenkins (JCasC)"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          # Demo-only credential for a Jenkins that is never exposed outside
+          # localhost. Override via the JENKINS_ADMIN_PASSWORD env var if you
+          # want something else.
+          password: "${JENKINS_ADMIN_PASSWORD:-admin123}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://localhost:8081/"
+
+jobs:
+  - script: >
+      pipelineJob('rag-ingestion-pipeline') {
+        description('Checkout -> Validate (Maven gate) -> Archive -> Deploy (Ansible) -> Chroma ingest')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url(System.getenv('GIT_REPO_URL') ?: 'https://github.com/CHANGE-ME/devops_project.git')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+          }
+        }
+      }

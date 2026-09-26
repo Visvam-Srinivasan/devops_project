@@ -1,0 +1,5 @@
+target/
+docker/.env
+.verify-tmp/
+*.log
+__pycache__/

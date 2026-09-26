@@ -1,0 +1,10 @@
+configuration-as-code
+git
+github
+workflow-aggregator
+job-dsl
+credentials
+matrix-auth
+timestamper
+ws-cleanup
+pipeline-stage-view

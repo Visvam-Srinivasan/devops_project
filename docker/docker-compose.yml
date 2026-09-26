@@ -1,0 +1,57 @@
+services:
+  chroma:
+    image: chromadb/chroma:0.5.5
+    container_name: chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    networks: [ragnet]
+
+  ingestion-worker:
+    build:
+      context: ..
+      dockerfile: docker/ingestion-worker/Dockerfile
+    container_name: ingestion-worker
+    # 2222 lets you SSH in by hand for debugging; the pipeline itself
+    # reaches this container over the docker network as "ingestion-worker:22".
+    ports:
+      - "2222:22"
+    volumes:
+      # Caches the downloaded sentence-transformers model across container
+      # restarts/rebuilds so it's only fetched from the internet once.
+      - hf-cache:/home/deploy/.cache/huggingface
+    networks: [ragnet]
+    depends_on: [chroma]
+
+  jenkins:
+    build:
+      context: ..
+      dockerfile: docker/jenkins/Dockerfile
+    container_name: jenkins
+    ports:
+      # Host 8080 was already taken by another Jenkins instance on this
+      # machine, so this stack's Jenkins is exposed on 8081 instead
+      # (still 8080 *inside* the container/network — smee still targets
+      # /github-webhook/ on port 8080 internally, just published as 8081
+      # on the host).
+      - "8081:8080"
+    environment:
+      - GIT_REPO_URL=${GIT_REPO_URL:-}
+      - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD:-admin123}
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      # Read-only view of the repo, independent of any Jenkins job
+      # workspace. Used by the standalone verification script (scripts/verify.sh)
+      # to run ansible-playbook directly without needing a prior Jenkins build.
+      - ..:/workspace:ro
+    networks: [ragnet]
+    depends_on: [ingestion-worker, chroma]
+
+volumes:
+  chroma-data:
+  hf-cache:
+  jenkins-data:
+
+networks:
+  ragnet:

@@ -1,0 +1,119 @@
+---
+# deploy.yml
+#
+# Idempotent deployment of the RAG ingestion pipeline onto the
+# ingestion-worker "VM": installs Python + pip deps, ships the
+# Jenkins-validated artifact (doc + manifest.json) and the ingestion
+# scripts, then ingests the doc into ChromaDB — but only if that exact
+# document (by sha256) hasn't been ingested yet.
+#
+# Run this playbook twice back-to-back to prove idempotency: the first run
+# does real work (changed > 0), the second run should report changed=0 for
+# every single task.
+
+- name: Deploy RAG ingestion artifact to the ingestion worker
+  hosts: ingestion_workers
+  gather_facts: true
+
+  vars:
+    app_dir: /opt/ingestion
+    venv_dir: "{{ app_dir }}/venv"
+    # Paths are resolved relative to this playbook's own location, so this
+    # works whether it's invoked from a Jenkins job workspace (a fresh git
+    # checkout) or from the read-only /workspace bind mount used by the
+    # standalone verification script — both lay the repo out the same way.
+    artifact_src: "{{ playbook_dir }}/../validator/target/artifact.zip"
+    ingest_script_src: "{{ playbook_dir }}/../ingestion/ingest.py"
+    query_script_src: "{{ playbook_dir }}/../ingestion/query.py"
+    requirements_src: "{{ playbook_dir }}/../ingestion/requirements.txt"
+
+  tasks:
+    # --- 1. Base packages -----------------------------------------------
+    # become: true only where root is actually required (apt, and creating
+    # directories under /opt). Everything after that runs as the ssh user
+    # ("deploy"), who owns those directories, so no further privilege
+    # escalation is needed.
+    - name: Ensure required system packages are installed
+      become: true
+      apt:
+        name:
+          - python3
+          - python3-venv
+          - python3-pip
+          - unzip
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure application directories exist and are owned by the deploy user
+      become: true
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0755"
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/artifacts"
+        - "{{ app_dir }}/incoming"
+        - "{{ app_dir }}/state"
+
+    # --- 2. Ship the ingestion code + its dependencies -------------------
+    - name: Copy ingestion scripts and requirements.txt to the target
+      copy:
+        src: "{{ item }}"
+        dest: "{{ app_dir }}/"
+        owner: deploy
+        group: deploy
+        mode: "0644"
+      loop:
+        - "{{ ingest_script_src }}"
+        - "{{ query_script_src }}"
+        - "{{ requirements_src }}"
+
+    - name: Create/refresh the Python virtualenv with pinned requirements (idempotent)
+      pip:
+        requirements: "{{ app_dir }}/requirements.txt"
+        virtualenv: "{{ venv_dir }}"
+        virtualenv_command: "python3 -m venv"
+
+    # --- 3. Ship the Jenkins-validated artifact --------------------------
+    - name: Copy the validated artifact (doc + manifest.json) to the target
+      copy:
+        src: "{{ artifact_src }}"
+        dest: "{{ app_dir }}/artifacts/artifact.zip"
+        owner: deploy
+        group: deploy
+        mode: "0644"
+
+    - name: Extract the artifact (re-extracts only if its content changed)
+      unarchive:
+        src: "{{ app_dir }}/artifacts/artifact.zip"
+        dest: "{{ app_dir }}/incoming"
+        remote_src: true
+        owner: deploy
+        group: deploy
+
+    # --- 4. Ingest, but only once per distinct document -------------------
+    - name: Read the manifest to find this document's content hash
+      slurp:
+        src: "{{ app_dir }}/incoming/manifest.json"
+      register: manifest_raw
+
+    - name: Parse manifest.json
+      set_fact:
+        manifest: "{{ manifest_raw.content | b64decode | from_json }}"
+
+    - name: Ingest the document into ChromaDB (skipped if this sha256 was already ingested)
+      command: >
+        {{ venv_dir }}/bin/python3 {{ app_dir }}/ingest.py
+        --input {{ app_dir }}/incoming
+        --chroma-host chroma
+        --chroma-port 8000
+        --state-dir {{ app_dir }}/state
+      args:
+        # `creates` makes this task itself idempotent: on the second run
+        # Ansible sees the marker file ingest.py touched and skips the
+        # command entirely, reporting changed=false.
+        creates: "{{ app_dir }}/state/{{ manifest.sha256 }}.done"
