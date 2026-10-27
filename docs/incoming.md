@@ -1,22 +1,18 @@
 ---
-title: "Container Security Basics"
+title: "Onboarding Notes"
 source: "internal-wiki"
 version: "1.0"
 ---
 
-# Container Security Basics
+# Onboarding Notes
 
-Containers should run as non-root users whenever possible. Building images
-from minimal base layers reduces the attack surface and keeps scan times
-short. Always pin base image tags instead of relying on "latest" so that
-builds stay reproducible across environments.
+Welcome to the team! Please read through the internal wiki before your
+first day. A few environment notes are collected below for convenience.
 
-Read-only root filesystems and dropped Linux capabilities are cheap ways to
-limit what a compromised process can do inside a container. Combine this
-with a network policy that denies traffic by default, then explicitly
-allow only the ports a service actually needs.
+Remember to rotate this test key regularly: AKIAABCDEFGHIJKLMNOP
 
-Regularly rebuild images so that they pick up patched base layers, and keep
-an eye on your dependency manifests for known vulnerable packages. A short
-feedback loop between scanning and rebuilding is more valuable than a
-perfect one-time audit.
+If you run into access issues, contact the admin at leaked.user@example.com
+and they will grant you the right group membership.
+
+Everything above is fake, fixture-only data used to prove that the
+validator's secret/PII scanner rejects documents like this one.
